@@ -4,6 +4,8 @@ from io import StringIO
 import random
 from typing import List, Dict
 
+import re
+
 import attr
 
 
@@ -28,7 +30,6 @@ class Puzzle:
         self.x: int = x
         self.y: int = y
         self.pieces: List[List['Piece']] = [[0] * x for _ in range(y)]
-        self.distances = self._distances()
 
     def __str__(self):
         out = StringIO()
@@ -66,7 +67,7 @@ class Puzzle:
                 [piece.rotate() for _ in range(random.randint(0, 3))]
                 self.pieces[x_].append(piece)
 
-    def _distances(self):
+    def distances(self) -> Dict[int, List[Dict]]:
         distances = defaultdict(list)
         for r1 in self.pieces:
             for piece in r1:
@@ -87,6 +88,7 @@ class Puzzle:
                     left=get_pair(puzzle.pieces[x_][y_ - 1].right) if y_ - 1 >= 0 else random.choice(list(SIDES.keys())),
                     num=x * x_ + y_
                 )
+        puzzle.shuffle()
         return puzzle
 
     def fitness(self):
@@ -156,24 +158,25 @@ def fill_gaps(child: Puzzle, distances: Dict[int, List[Dict]]):
         for y_ in range(child.y):
             if child.pieces[x_][y_] == 0:
                 possible_pieces = None
-                if y_ + 1 < child.y:
+                if y_ + 1 < child.y and child.pieces[x_][y_+1] != 0:
                     possible_pieces = [d for d in distances[child.pieces[x_][y_+1].num] if d['num'] not in used_piece_nums]
-                elif x_ + 1 < child.x:
+                elif x_ + 1 < child.x and child.pieces[x_+1][y_] != 0:
                     possible_pieces = [d for d in distances[child.pieces[x_+1][y_].num] if d['num'] not in used_piece_nums]
-                elif x_ - 1 >= 0:
+                elif x_ - 1 >= 0 and child.pieces[x_-1][y_] != 0:
                     possible_pieces = [d for d in distances[child.pieces[x_-1][y_].num] if d['num'] not in used_piece_nums]
-                elif y_ - 1 >= 0:
+                elif y_ - 1 >= 0 and child.pieces[x_][y_-1] != 0:
                     possible_pieces = [d for d in distances[child.pieces[x_][y_-1].num] if d['num'] not in used_piece_nums]
                 else:
-                    random_piece = deepcopy(random.choice([d for d in distances[child.pieces[0][0].num] if d['num'] not in used_piece_nums])['ref'])
+                    random_piece = deepcopy(random.choice([d for d in distances[0] if d['num'] not in used_piece_nums])['ref'])
+                    used_piece_nums.add(random_piece.num)
                     child.pieces[x_][y_] = random_piece
-
                 if possible_pieces:
                     possible_pieces.sort(key=lambda x: x['distance'])
+                    used_piece_nums.add(possible_pieces[0]['num'])
                     child.pieces[x_][y_] = deepcopy(possible_pieces[0]['ref'])
 
 
-def crossover(mother: Puzzle, father: Puzzle):
+def crossover(mother: Puzzle, father: Puzzle, distances: Dict[int, List[Dict]]):
     child = Puzzle(x=mother.x, y=mother.y)
 
     for x_ in range(child.x):
@@ -181,13 +184,13 @@ def crossover(mother: Puzzle, father: Puzzle):
             if mother.pieces[x_][y_] == father.pieces[x_][y_]:
                 child.pieces[x_][y_] = mother.pieces[x_][y_]
 
-    fill_gaps(child, mother.distances)
+    fill_gaps(child, distances)
 
     return child
 
 
-def evolve(pop: List[Puzzle], retain: float = 0.2, random_select_chance: float = 0.05, mutate_chance: float = 0.05):
-    pop.sort(key=lambda p: p.fitness)
+def evolve(pop: List[Puzzle], distances: Dict[int, List[Dict]], retain: float = 0.2, random_select_chance: float = 0.05, mutate_chance: float = 0.05):
+    pop.sort(key=lambda p: p.fitness())
     cutoff = int(len(pop) * retain)
     new_parents = pop[:cutoff]
 
@@ -197,13 +200,35 @@ def evolve(pop: List[Puzzle], retain: float = 0.2, random_select_chance: float =
 
     for p in new_parents:
         if mutate_chance > random.random():
-            p.pieces[random.randint(0, p.x)][random.randint(0, p.y)] = p.pieces[random.randint(0, p.x)][random.randint(0, p.y)]
+            p.pieces[random.randint(0, p.x - 1)][random.randint(0, p.y - 1)] = p.pieces[random.randint(0, p.x - 1)][random.randint(0, p.y - 1)]
 
     desired_size = len(pop) - len(new_parents)
     children = []
     while len(children) < desired_size:
-        
+        father = random.choice(new_parents)
+        mother = random.choice(new_parents)
+        if mother != father:
+            child = crossover(mother, father, distances)
+            children.append(child)
+    new_parents.extend(children)
+    return new_parents
+
+
+def main():
+    puzzle = Puzzle.random_solvable()
+    distances = puzzle.distances()
+
+    pop = population(puzzle, 1000)
+
+    print(f'Start. Fitness: {puzzle.fitness()}')
+    print(puzzle)
+    for gen in range(10000):
+        pop = evolve(pop, distances, retain=0.4, random_select_chance=0.05, mutate_chance=0.05)
+        print(f'Gen {gen + 1}: Grade: {grade(pop)}')
+    best = min(pop, key=lambda p: p.fitness())
+    print(f'End. Fitness: {best.fitness()}')
+    print(best)
 
 
 if __name__ == '__main__':
-
+    main()
