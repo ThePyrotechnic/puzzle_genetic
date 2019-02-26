@@ -4,8 +4,6 @@ from io import StringIO
 import random
 from typing import List, Dict
 
-import re
-
 import attr
 
 
@@ -88,7 +86,6 @@ class Puzzle:
                     left=get_pair(puzzle.pieces[x_][y_ - 1].right) if y_ - 1 >= 0 else random.choice(list(SIDES.keys())),
                     num=x * x_ + y_
                 )
-        puzzle.shuffle()
         return puzzle
 
     def fitness(self):
@@ -200,7 +197,11 @@ def evolve(pop: List[Puzzle], distances: Dict[int, List[Dict]], retain: float = 
 
     for p in new_parents:
         if mutate_chance > random.random():
-            p.pieces[random.randint(0, p.x - 1)][random.randint(0, p.y - 1)] = p.pieces[random.randint(0, p.x - 1)][random.randint(0, p.y - 1)]
+            # p.shuffle()
+            r_x = random.randint(0, p.x - 1)
+            r_y = random.randint(0, p.y - 1)
+            [p.pieces[r_x][r_y].rotate() for _ in range(random.randint(0, 3))]
+            p.pieces[r_x][r_y] = p.pieces[random.randint(0, p.x - 1)][random.randint(0, p.y - 1)]
 
     desired_size = len(pop) - len(new_parents)
     children = []
@@ -215,19 +216,36 @@ def evolve(pop: List[Puzzle], distances: Dict[int, List[Dict]], retain: float = 
 
 
 def main():
-    puzzle = Puzzle.random_solvable()
+    puzzle = Puzzle.random_solvable(x=3, y=3)
+    solution = str(puzzle)
+    puzzle.shuffle()
     distances = puzzle.distances()
 
     pop = population(puzzle, 1000)
 
     print(f'Start. Fitness: {puzzle.fitness()}')
     print(puzzle)
+
+    sum_of_grades = 0
+    last_avg = 100
     for gen in range(10000):
-        pop = evolve(pop, distances, retain=0.4, random_select_chance=0.05, mutate_chance=0.05)
-        print(f'Gen {gen + 1}: Grade: {grade(pop)}')
+        pop = evolve(pop, distances, retain=0.4, random_select_chance=0.05, mutate_chance=0.01)
+        cur_grade = grade(pop)
+        print(f'Gen {gen + 1}: Grade: {cur_grade}')
+        sum_of_grades += cur_grade
+        if (gen + 1) % 50 == 0:
+            avg = sum_of_grades/(gen + 1)
+            print(f'Average grade difference: {last_avg - avg}')
+            if last_avg - avg < 0.1:
+                print('Stopping early because grade improvement of last 50 generations has slowed below threshold')
+                break
+            last_avg = avg
     best = min(pop, key=lambda p: p.fitness())
     print(f'End. Fitness: {best.fitness()}')
     print(best)
+
+    print('Correct solution:')
+    print(solution)
 
 
 if __name__ == '__main__':
